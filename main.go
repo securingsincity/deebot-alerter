@@ -1,49 +1,97 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
-	"strings"
 	"time"
 
+	ifttt "github.com/lorenzobenvenuti/ifttt"
 	vacbot "github.com/securingsincity/go-vacbot"
 )
 
 const (
-	CLEAN_MODE_AUTO        = "auto"
-	CLEAN_MODE_EDGE        = "edge"
-	CLEAN_MODE_SPOT        = "spot"
-	CLEAN_MODE_SINGLE_ROOM = "single_room"
-	CLEAN_MODE_STOP        = "stop"
+	CleanModeAuto       = "auto"
+	CleanModeEdge       = "border"
+	CleanModeSpot       = "spot"
+	CleanModeSingleRoom = "singleRoom"
+	CleanModeStop       = "stop"
 )
+
+var iftttKey = os.Getenv("IFTTT_KEY")
+var iftttEvent = os.Getenv("IFTTT_EVENT")
+var RunningModes = []string{CleanModeAuto, CleanModeEdge, CleanModeSpot, CleanModeSingleRoom}
 
 var client = vacbot.NewFromConfigFile("./config")
 
-func callback(result interface{}, err error) {
-	if err != nil {
-		log.Printf("FAIL - %s", err)
+type Clean struct {
+	CleanType string `xml:"type,attr"`
+}
+type Control struct {
+	Ret   string `xml:"ret,attr"`
+	Clean Clean  `xml:"clean"`
+	TD    string `xml:"td,attr"`
+}
+
+type XmlResult struct {
+	XMLName xml.Name `xml:"query"`
+	Ctl     Control  `xml:"ctl"`
+}
+
+var previousStatus = "stop"
+
+func contains(a []string, x string) bool {
+	for _, n := range a {
+		if x == n {
+			return true
+		}
 	}
-	if result != nil {
-		resultValue := reflect.ValueOf(result)
-		_, ok := resultValue.Type().FieldByName("Query")
-		if ok {
-			battery := reflect.ValueOf(result).FieldByName("Query").Bytes()
-			batteryString := string(battery[:])
-			if batteryString != "" {
-				fmt.Println(batteryString)
-				if strings.Contains(batteryString, CLEAN_MODE_STOP) {
-					fmt.Println("STOPPED")
-				} else {
-					fmt.Println("RUNNING")
+	return false
+}
+
+func main() {
+	iftttClient := ifttt.NewIftttClient(iftttKey)
+	log.Printf("Called battery %s", iftttKey)
+	callback := func(result interface{}, err error) {
+		if err != nil {
+			log.Printf("FAIL - %s", err)
+		}
+		if result != nil {
+			resultValue := reflect.ValueOf(result)
+			_, ok := resultValue.Type().FieldByName("Query")
+			if ok {
+				battery := reflect.ValueOf(result).FieldByName("Query").Bytes()
+				var xmlResult = XmlResult{}
+				batteryString := string(battery[:])
+				if batteryString != "" {
+					// fmt.Println(batteryString)
+					err := xml.Unmarshal([]byte(battery), &xmlResult)
+					if err != nil {
+						fmt.Printf("error: %v", err)
+						return
+					}
+					if xmlResult.Ctl.TD != "" {
+						return
+					}
+					if xmlResult.Ctl.Clean.CleanType == CleanModeStop && previousStatus != CleanModeStop {
+						previousStatus = CleanModeStop
+						message := "Stopping"
+						fmt.Println(message)
+						iftttClient.Trigger(iftttEvent, []string{message})
+					} else if contains(RunningModes, xmlResult.Ctl.Clean.CleanType) && !contains(RunningModes, previousStatus) {
+						fmt.Println(batteryString)
+						previousStatus = xmlResult.Ctl.Clean.CleanType
+						message := fmt.Sprintf("Started Running in Mode %s", previousStatus)
+						fmt.Println(message)
+						iftttClient.Trigger(iftttEvent, []string{message})
+					} else {
+					}
 				}
 			}
 		}
 	}
-}
-
-func main() {
-	log.Printf("Called battery %s", "foo")
 	fiveMinuteTicker := time.NewTicker(20 * time.Second)
 	go func() {
 		for _ = range fiveMinuteTicker.C {
