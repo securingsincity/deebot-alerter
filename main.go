@@ -53,7 +53,6 @@ func contains(a []string, x string) bool {
 
 func main() {
 	iftttClient := ifttt.NewIftttClient(iftttKey)
-	log.Printf("Called battery %s", iftttKey)
 	callback := func(result interface{}, err error) {
 		if err != nil {
 			log.Printf("FAIL - %s", err)
