@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ifttt "github.com/lorenzobenvenuti/ifttt"
-	vacbot "github.com/securingsincity/go-vacbot"
+	vacbot "github.com/skburgart/go-vacbot"
 )
 
 const (
